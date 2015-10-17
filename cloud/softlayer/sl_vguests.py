@@ -25,60 +25,80 @@ module: sl_vguests
 short_description: Manages virtual machines supported by IBM SoftLayer cloud.
 description:
   - This module helps you to create, destroy, .. the public or private virtual machines (vguest) hosted in IBM SoftLayer cloud.
-    It is now a pleasure to deploy, configure and manage the SoftLayer vguests with the best configuration manager: ANSIBLE. 
+    It is now a pleasure to deploy, configure and manage the SoftLayer vguests with the best configuration manager ANSIBLE. 
     This module requires the SofLayer python library with username and api_key configured.
 version_added: "0.1"
 options:
   name:
     description:
-      - name of the guest VM managed. Note, it is a full qualified domain name.
-      required: for to create VM with flavor resources need
+      - Name of the guest VM managed. It is a full qualified domain name.
+        Name is required for to create VM with flavor resources need
+    required: false
+    default: no
   state:
     description:
-      - running: start or create vguest virtual server
-      - destroy: delete vguest virtual server
-      - list: show vguest virtual servers
-      - facts: extract the description of vguest virtual server
-      - info: show configuration of vguest virtual server
-      required: true
-      choice: [ "running", "destroy", "list", "info", "facts" ]
-      default: no
+      - I(running) - start or create vguest virtual server.
+      - I(destroy) - delete vguest virtual server.
+      - I(list) - show vguest virtual servers.
+      - I(facts) - extract the description of vguest virtual server.
+      - I(info) - show configuration of vguest virtual server.
+    required: true
+    choice: [ "running", "destroy", "list", "info", "facts" ]
+    default: no
   hostname:
     description:
       - select virtual server by short name
+    required: false
+    default: no
   domain:
     description:
       - select virtual servers by domain name
+    required: false
+    default: no
   datacenter:
     description:
       - select virtual servers by datacenter name
+    required: false
+    default: no
   tags:
     description:
       - select virtual servers by tags name
+    required: false
+    default: no
   flavor:
     description:
       - define the flavor when create the virtual server
-  sshkeyclient:
+    required: false
+    default: see example
+  sshkey:
     description:
       - define the label of sshkey use to connect in vguests with root account 
+    required: false
+    default: Frederic PERREAU
   wait:
     description:
       - Waits on a vguets transaction for the specified amount of time 
+    required: false
+    default: no
   hourly:
     description:
       - choose hourly vguest virtual server (default)
+    required: false
+    default: no
   monthly:
     description:
-      - choose monthly vguest virtual server
-      
+      - choose monthly vguest virtual server      
+    required: false
+    default: no
 requirements: [ "softlayer-python" ]
 author: Frederic PERREAU
-notes:
+notes: draft
 '''
 
-EXAMPLE = '''
-# a playbook task line:
-- sl_vguests: name={{iventory_hostname}} state=running flavor={{lookup('template','template/sl_tiny.json.j2)}}
+EXAMPLES = '''
+---
+# a playbook task line
+sl_vguests name={{iventory_hostname}} state=running flavor={{lookup('template','template/sl_tiny.json.j2)}}
 
 # /usr/bin/ansible invocations
 ansible host -m sl_vguests -i inventory -a "state=list datacenter=par01"
@@ -87,12 +107,12 @@ ansible host -m sl_vguests -i inventory -a "state=destroy name=server.domain.loc
 
 # a playbook example of defining and launching an SolftLayer vguest
 tasks:
-  - name: define vm
-    sl_vguests: name=server.domain.local command=running
-                flavor="{{lookup('template', 'template/sl_tiny.json.j2')}}"
+  name: define vm
+  sl_vguests: name=server.domain.local command=running
+              flavor="{{lookup('template', 'template/sl_tiny.json.j2')}}"
 
-flavor file example:
-   {
+# default flavor file example
+  {
     'hourly' : True,
     'cpus' : 1,
     'memory' : 1024,
@@ -104,12 +124,9 @@ flavor file example:
     'private' : True,
     'disks' : [25,100],
     'tags' : 'mytag',
-   }
+  }
 '''
 
-from ansible.module_utils.basic import *
-from ansible.module_utils.facts import *
-    
 import sys
 import string
 
@@ -121,8 +138,6 @@ try:
 except ImportError:
     print "failed=True msg='softlayer python library unavailable'"
     sys.exit(1)
-
-SSHKEY_LABEL = 'Frederic PERREAU'
 
 ALL_STATES   = ['list','info','facts','running','halted','paused','destroy']
 ALL_STATUS   = ['Running','Halted','Paused','Undefined']
@@ -143,6 +158,8 @@ VSI_DEFAULT = {
                'disks' : [25],
                'tags' : 'mytag',
                }
+
+SSHKEY_LABEL = 'Frederic PERREAU'
 
 class vGuests(object):
     
@@ -223,8 +240,8 @@ class vGuests(object):
         hourly  = self.module.params.get('hourly')
         monthly = self.module.params.get('monthly')
 
-        if wait is None: wait = 600                         #PB dict.get(..,int)
-        if vsi is None: vsi = VSI_DEFAULT                   #PB dict.get(..,dict)
+#        if wait is None: wait = 600                         #PB dict.get(..,int)
+#        if vsi is None: vsi = VSI_DEFAULT                   #PB dict.get(..,dict)
         if monthly is True: vsi['hourly'] = False
         if hourly is True:  vsi['hourly'] = True
         
@@ -242,7 +259,7 @@ class vGuests(object):
     ###
     def destroy(self,name,id,results):
         wait = self.module.params.get('wait')
-        if wait is None: wait = 600                         #PB dict.get(..,int)
+#        if wait is None: wait = 600                         #PB dict.get(..,int)
 
         if self.vs.cancel_instance(id):
             results['changed'] = True
@@ -278,10 +295,10 @@ class vGuests(object):
                         '_NONE_'   :{ 'list':self.list, 'info':self.info, 'facts':self.facts, },
                         }
 
-        state   = self.module.params.get('state')
-        name    = self.module.params.get('name')
-        label   = self.module.params.get('sshkey')
-        if label is None: lable = SSHKEY_LABEL              #PB dict.get(..,string)
+        state  = self.module.params.get('state')
+        name   = self.module.params.get('name')
+        sshkey = self.module.params.get('sshkey')
+#        if sshkey is None: lable = SSHKEY_LABEL              #PB dict.get(..,string)
 
         results = { 'changed':False, 'state':state, 'instances':[] }        
 
@@ -289,7 +306,7 @@ class vGuests(object):
             self.client = SoftLayer.create_client_from_env()
             self.vs     = VSManager(self.client)
             self.vdi    = self.client['Virtual_Disk_Image']
-            self.sshkey = SshKeyManager(self.client)._get_ids_from_label(label)
+            self.sshkey = SshKeyManager(self.client)._get_ids_from_label(sshkey)
 
             if state in FINITE_STATE['_NONE_'].keys():                
                 FINITE_STATE['_NONE_'][state](name,0,results)
@@ -366,7 +383,6 @@ class vGuests(object):
 #
 # MAIN
 #
-
 def main():    
     module = AnsibleModule(
         argument_spec = dict(
@@ -376,15 +392,21 @@ def main():
             domain       = dict(type='str'),
             datacenter   = dict(type='str'),
             tags         = dict(type='str'),
-            wait         = dict(type='int'),
-            flavor       = dict(type='dict'),
-            sshkeyclient = dict(type='str'),
-            hourly       = dict(type=int, choices=BOOLEANS),
-            monthly      = dict(type=int, choices=BOOLEANS),
+            wait         = dict(type='int',  default=600),
+            flavor       = dict(type='dict', default=VSI_DEFAULT),
+            sshkey       = dict(type='str',  default=SSHKEY_LABEL),
+            hourly       = dict(choices=BOOLEANS, default=True),
+            monthly      = dict(choices=BOOLEANS, default=False),
             ),
         required_one_of = [['state']],
         mutually_exclusive = [['hourly','monthly']]
         ) 
     vGuests(module).main()
-                              
-main()
+
+###                              
+from ansible.module_utils.facts import *
+from ansible.module_utils.basic import *
+
+if __name__ == '__main__':
+    main()
+
