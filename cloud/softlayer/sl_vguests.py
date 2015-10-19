@@ -117,12 +117,12 @@ tasks:
     'cpus' : 1,
     'memory' : 1024,
     'datacenter' :'par01',
-    'local_disk' : True,
     'os_code' : 'UBUNTU_14_64',
     'dedicated' : False,
     'nic_speed' : 1000,
     'private' : True,
-    'disks' : [25,100],
+    'local_disk': True,
+    'disks' : [25],
     'tags' : 'mytag',
   }
 '''
@@ -139,23 +139,24 @@ except ImportError:
     print "failed=True msg='softlayer python library unavailable'"
     sys.exit(1)
 
-ALL_STATES   = ['list','info','facts','running','halted','paused','destroy']
-ALL_STATUS   = ['Running','Halted','Paused','Undefined']
+ALL_STATES        = ['list','info','facts','running','halted','paused','destroy']
+ALL_POWER_STATES  = ['Running','Halted','Paused','Undefined']
+ALL_STATUS        = ['Active']
 
-MASK_LIST    = "fullyQualifiedDomainName,id,datacenter.name,powerState.name,primaryBackendIpAddress"
+MASK_LIST    = "fullyQualifiedDomainName,id,datacenter.name,status,powerState.name,primaryBackendIpAddress"
 MASK_FACTS   = "id"
 
 VSI_DEFAULT = {
+               'private' : True,
+               'dedicated' : False,
                'hourly' : True,
+               'datacenter' :'par01',
                'cpus' : 1,
                'memory' : 1024,
-               'datacenter' :'par01',
-               'local_disk' : True,
-               'os_code' : 'UBUNTU_14_64',
-               'dedicated' : False,
                'nic_speed' : 1000,
-               'private' : True,
+               'local_disk': True,
                'disks' : [25],
+               'os_code' : 'UBUNTU_14_64',
                'tags' : 'mytag',
                }
 
@@ -173,7 +174,7 @@ class vGuests(object):
         self.sshkey = None
 
     ###    
-    def status(self,name):
+    def state(self,name):
         list_instances = []
         items = self.vs.list_instances(
             hostname   = name.split('.',1)[0] if name is not None else self.module.params.get('hostname'),
@@ -187,7 +188,7 @@ class vGuests(object):
 
     ###    
     def list(self,name,id,results):
-        list_instances = self.status(name)
+        list_instances = self.state(name)
         if not len(list_instances):
             results['msg'] = "vguest not found"
         results['instances'] = list_instances
@@ -222,7 +223,7 @@ class vGuests(object):
     def info(self,name,id,results):
         list_instances = []
 
-        items = self.status(name)
+        items = self.state(name)
         for item in items:
             list_instances.append(self.vs.get_instance(item['id']))
 
@@ -237,11 +238,9 @@ class vGuests(object):
 
         vsi     = self.module.params.get('flavor')
         wait    = self.module.params.get('wait')
-        hourly  = self.module.params.get('hourly')
-        monthly = self.module.params.get('monthly')
+        hourly  = self.module.boolean(self.module.params.get('hourly'))  
+        monthly = self.module.boolean(self.module.params.get('monthly'))
 
-#        if wait is None: wait = 600                         #PB dict.get(..,int)
-#        if vsi is None: vsi = VSI_DEFAULT                   #PB dict.get(..,dict)
         if monthly is True: vsi['hourly'] = False
         if hourly is True:  vsi['hourly'] = True
         
@@ -254,18 +253,17 @@ class vGuests(object):
         self.vs.wait_for_ready(inst['id'],wait)
 
         results['changed'] = True
-        results['instances'] = self.status(name)
+        results['instances'] = self.state(name)
 
     ###
     def destroy(self,name,id,results):
         wait = self.module.params.get('wait')
-#        if wait is None: wait = 600                         #PB dict.get(..,int)
 
         if self.vs.cancel_instance(id):
             results['changed'] = True
         self.vs.wait_for_ready(id,wait)
 
-        for item in self.status(name):
+        for item in self.state(name):
             results['instances'].append(item)
         
     ###
@@ -282,7 +280,7 @@ class vGuests(object):
 
     ###
     def nop(self,name,id,results):
-        for item in self.status(name):
+        for item in self.state(name):
             results['instances'].append(item)
      
     ###
@@ -298,7 +296,6 @@ class vGuests(object):
         state  = self.module.params.get('state')
         name   = self.module.params.get('name')
         sshkey = self.module.params.get('sshkey')
-#        if sshkey is None: lable = SSHKEY_LABEL              #PB dict.get(..,string)
 
         results = { 'changed':False, 'state':state, 'instances':[] }        
 
@@ -311,18 +308,18 @@ class vGuests(object):
             if state in FINITE_STATE['_NONE_'].keys():                
                 FINITE_STATE['_NONE_'][state](name,0,results)
             else:
-                items = self.status(name)
+                items = self.state(name)
                 if not len(items):
-                    items = [{ 'status':'Undefined', 'name':name, 'id':0 }] ## to create vguest with a virtual status Undefined
+                    items = [{ 'state':'Undefined', 'name':name, 'id':0 }] ## to create vguest with a virtual state Undefined
 
                 for item in items:
-                    FINITE_STATE[item['status']][state](item['name'],item['id'],results)
+                    FINITE_STATE[item['state']][state](item['name'],item['id'],results)
                     
         except SoftLayer.SoftLayerAPIError as e:
             self.module.fail_json(msg="exception SoftLayer API faultCode=%s, faultString=%s" % (e.faultCode, e.faultString))
         except Exception as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
-            traceback.print_exception(exc_type, exc_value, exc_traceback,limit=2)
+            traceback.print_exception(exc_type, exc_value, exc_traceback,limit=1)
             trace = traceback.format_exc(limit=0)
             self.module.fail_json(msg="exception faultCode:%s, faultString=%s, traceBack=%s" % (type(e),e.args,trace))
 
@@ -337,7 +334,8 @@ class vGuests(object):
             'id'          : inst['id'],
             'name'        : inst['fullyQualifiedDomainName'],
             'datacenter'  : inst['datacenter']['name'],
-            'status'      : inst['powerState']['name'],
+            'state'       : inst['powerState']['name'],
+            'status'      : inst['status']['name'],
             'address'     : 'undefined',
             }
 
@@ -353,31 +351,74 @@ class vGuests(object):
         info = {
             'id'          : inst['id'],
             'name'        : inst['fullyQualifiedDomainName'],
+            'hostname'    : inst['hostname'],
+            'domain'      : inst['domain'],
             'datacenter'  : inst['datacenter']['name'],
-            'cpu'         : inst['maxCpu'],
+            'cpus'        : inst['maxCpu'],
             'memory'      : inst['maxMemory'],
             'state'       : inst['powerState']['name'],
+            'status'      : inst['status']['name'],
+            'os_code'     : inst['operatingSystem']['softwareLicense']['softwareDescription']['referenceCode'],
+            'dedicated'   : inst['dedicatedAccountHostOnlyFlag'],
+            'hourly'      : inst['hourlyBillingFlag'],
+            'private'     : inst['privateNetworkOnlyFlag'],
             'tags'        : [i['tag']['name'] for i in inst['tagReferences']],
-            'os'          : {'name':    inst['operatingSystem']['softwareLicense']['softwareDescription']['name'],
-                             'version': inst['operatingSystem']['softwareLicense']['softwareDescription']['version']},
             }
-
+        
+        # Address value if defined
         if 'primaryBackendIpAddress' in inst.keys():
             info['address'] = inst['primaryBackendIpAddress']
         elif 'primaryIpAddress' in inst.keys():
             info['address'] = inst['primaryIpAddress']
         
+        # privateAddress value if defined
         if 'primaryBackendIpAddress' in inst.keys():
             info['privateAddress'] = inst['primaryBackendIpAddress']
         if 'primaryIpAddress' in inst.keys():
             info['publicAddress'] = inst['primaryIpAddress']
         
+        # publicAddress value if defined
         if len(inst['blockDevices']):
-            info['disk'] = []
+            local_disk = False
+            info['disks'] = []
             for blockDevice in inst['blockDevices']:
                 disk = self.vdi.getObject(id=blockDevice['diskImageId'])
-                info['disk'].append({ 'id':disk['id'], 'name': disk['name'], 'capacity':disk['capacity'], 'units':disk['units'] })
+                if not 'SWAP' in disk['name']:
+                    if 'GB' in disk['units']: 
+                        unit = 1
+                    elif 'TB' in disk['units']:
+                        unit = 1000
+                    else:
+                        unit = 0
+                    if self.vdi.getLocalDiskFlag(id=blockDevice['diskImageId']):
+                        local_disk = True
+                    info['disks'].append(disk['capacity'] * unit)
+            info['local_disk'] = local_disk
 
+        # vlan
+        if len(inst['networkVlans']):
+            for vlan in inst['networkVlans']:
+                networkSpace = vlan['networkSpace']
+                if networkSpace == 'PRIVATE': info['private_vlan']=vlan['vlanNumber']
+                if networkSpace == 'PUBLIC':  info['public_vlan']=vlan['vlanNumber']
+        
+        # Network Speed
+        nic_speed = 0
+        if len(inst['networkComponents']):
+            for networkComponent in inst['networkComponents']:
+                if 'ACTIVE' in networkComponent['status']:
+                    if nic_speed < networkComponent['maxSpeed']:
+                        nic_speed = networkComponent['maxSpeed']
+            info['nic_speed'] = nic_speed
+            
+        # User Data
+        if len(inst['userData']):
+            info['userData'] = inst['userData'][0]
+
+        # Post Install Script URI
+        if inst.get('postInstallScriptUri') is not None:
+            info['post_uri'] = inst['postInstallScriptUri']
+            
         return info
     
 #
