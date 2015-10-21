@@ -21,73 +21,73 @@
 DOCUMENTATION = '''
 ---
 author: Frederic PERREAU
-module: sl_vguests
-short_description: Manage virtual machines supported by IBM SoftLayer cloud.
+module: sl_hardware
+short_description: Manage vHardware machine supported by IBM SoftLayer cloud.
 description:
-  - This module helps you to create, destroy, .. the public or private virtual machines (vguest) hosted in IBM SoftLayer cloud.
-    It is now a pleasure to deploy, configure and manage the SoftLayer vguests with the best configuration manager ANSIBLE. 
+  - This module helps you to create, destroy, .. the public or private hardware machines (vguest) hosted in IBM SoftLayer cloud.
+    It is now a pleasure to deploy, configure and manage the SoftLayer hardware with the best configuration manager ANSIBLE. 
     This module requires the SofLayer python library with username and api_key configured.
 version_added: "0.1"
 options:
   name:
     description:
-      - Name of the guest VM managed. It is a full qualified domain name.
-        Name is required for to create VM with flavor resources need
+      - Name of the hardware machine managed. It is a full qualified domain name.
+        Name is required for to create server with flavor resources need
     required: false
     default: no
   state:
     description:
-      - I(running) - start or create vguest virtual server.
-      - I(destroy) - delete vguest virtual server.
-      - I(list) - show vguest virtual servers.
-      - I(facts) - extract the description of vguest virtual server.
-      - I(info) - show configuration of vguest virtual server.
+      - I(running) - start or create hardware machine.
+      - I(destroy) - delete hardware machine.
+      - I(list) - show hardware machines.
+      - I(facts) - extract the description of hardware machine.
+      - I(info) - show configuration of hardware machine.
     required: true
     choice: [ "running", "destroy", "list", "info", "facts" ]
     default: no
   hostname:
     description:
-      - select virtual server by short name
+      - select hardware machine by short name
     required: false
     default: no
   domain:
     description:
-      - select virtual servers by domain name
+      - select hardware machine by domain name
     required: false
     default: no
   datacenter:
     description:
-      - select virtual servers by datacenter name
+      - select hardware machine by datacenter name
     required: false
     default: no
   tags:
     description:
-      - select virtual servers by tags name
+      - select hardware machine by tags name
     required: false
     default: no
   flavor:
     description:
-      - define the flavor when create the virtual server
+      - define the flavor when create the hardware machine
     required: false
     default: see example
   sshkey:
     description:
-      - define the label of sshkey use to connect in vguests with root account 
+      - define the label of sshkey use to connect in hardware machine with root account 
     required: false
     default: Frederic PERREAU
   wait:
     description:
-      - Waits on a vguets transaction for the specified amount of time 
+      - Waits on a hardware machine transaction for the specified amount of time 
     required: false
     default: no
   hourly:
     description:
-      - choose hourly vguest virtual server (default)
+      - choose hourly hardware machine (default)
     required: false
     default: no
   monthly:
     description:
-      - choose monthly vguest virtual server      
+      - choose monthly hardware machine     
     required: false
     default: no
 requirements: [ "softlayer-python" ]
@@ -98,32 +98,21 @@ notes: draft
 EXAMPLES = '''
 ---
 # a playbook task line
-sl_vguests name={{iventory_hostname}} state=running flavor={{lookup('template','template/sl_tiny.json.j2)}}
+sl_hardware name={{iventory_hostname}} state=running flavor={{lookup('template','template/sl_server.json.j2)}}
 
 # /usr/bin/ansible invocations
-ansible host -m sl_vguests -i inventory -a "state=list datacenter=par01"
-ansible host -m sl_vguests -i inventory -a "state=facts domain=domain.local"
-ansible host -m sl_vguests -i inventory -a "state=destroy name=server.domain.local"
+ansible host -m sl_hardware -i inventory -a "state=list datacenter=par01"
+ansible host -m sl_hardware -i inventory -a "state=facts domain=domain.local"
+ansible host -m sl_hardware -i inventory -a "state=destroy name=server.domain.local"
 
-# a playbook example of defining and launching an SolftLayer vguest
+# a playbook example of defining and launching an SolftLayer hardware machine
 tasks:
-  name: define vm
-  sl_vguests: name=server.domain.local command=running
-              flavor="{{lookup('template', 'template/sl_tiny.json.j2')}}"
+  name: define hardware
+  sl_hardware: name=server.domain.local command=running
+              flavor="{{lookup('template', 'template/sl_server.json.j2')}}"
 
 # default flavor file example
   {
-    'hourly' : True,
-    'cpus' : 1,
-    'memory' : 1024,
-    'datacenter' :'par01',
-    'os_code' : 'UBUNTU_14_64',
-    'dedicated' : False,
-    'nic_speed' : 1000,
-    'private' : True,
-    'local_disk': True,
-    'disks' : [25],
-    'tags' : 'mytag',
   }
 '''
 
@@ -132,7 +121,7 @@ import string
 
 try:
     import SoftLayer
-    from SoftLayer.managers.vs import VSManager
+    from SoftLayer.managers.hardware import HardwareManager
     from SoftLayer.managers.sshkey import SshKeyManager
     from SoftLayer import utils
 except ImportError:
@@ -143,7 +132,7 @@ ALL_STATES        = ['list','info','facts','running','halted','paused','destroy'
 ALL_POWER_STATES  = ['Running','Halted','Paused','Undefined']
 ALL_STATUS        = ['Active']
 
-MASK_LIST    = "fullyQualifiedDomainName,id,datacenter.name,status,powerState.name,primaryBackendIpAddress"
+MASK_LIST    = "fullyQualifiedDomainName,id,datacenter.name,primaryBackendIpAddress"
 MASK_FACTS   = "id"
 
 VSI_DEFAULT = {
@@ -162,63 +151,63 @@ VSI_DEFAULT = {
 
 SSHKEY_LABEL = 'Frederic PERREAU'
 
-class vGuests(object):
+class vHardware(object):
     
-    __slots__ = ['module','client','vs','vdi','sshkey']
+    __slots__ = ['module','client','hw','vdi','sshkey']
     
     def __init__(self,module):
         self.module = module
         self.client = None
-        self.vs     = None
+        self.hw     = None
         self.vdi    = None
         self.sshkey = None
 
     ###    
     def state(self,name,id,results):
-        list_instances = []
-        items = self.vs.list_instances(
+        list_hardware = []
+        items = self.hw.list_hardware(
             hostname   = name.split('.',1)[0] if name is not None else self.module.params.get('hostname'),
             domain     = name.split('.',1)[1] if name is not None else self.module.params.get('domain'),
             datacenter = self.module.params.get('datacenter'),
-            tags       = self.module.params.get('tags'),
-            mask       = MASK_LIST )
+            mask = MASK_LIST,
+            )
         for item in items:
-            list_instances.append(self.get_instance(item))
-        return list_instances
+            list_hardware.append(self.get_instance(item))
+        return list_hardware
 
     ###    
     def list(self,name,id,results):
-        list_instances = self.state(name,id,results)
-        if not len(list_instances):
-            results['msg'] = "vguest not found"
-        results['instances'] = list_instances
-  
+        list_hardware = self.state(name,id,results)
+        if not len(list_hardware):
+            results['msg'] = "vHardware not found"
+        results['instances'] = list_hardware
+
     ###
     def facts(self,name,id,results):
         ansible_facts = {}
         list_facts = []
         del results['instances']
         
-        items = self.vs.list_instances( \
+        items = self.hw.list_hardware( \
             hostname   = name.split('.',1)[0] if name is not None else self.module.params.get('hostname'),
             domain     = name.split('.',1)[1] if name is not None else self.module.params.get('domain'),
             datacenter = self.module.params.get('datacenter'),
             tags       = self.module.params.get('tags'),
             mask       = MASK_FACTS )
         for item in items:
-            list_facts.append(self.get_fact(self.vs.get_instance(item['id'])))
-
+            list_facts.append(self.get_fact(self.hw.get_hardware(item['id'])))
+        
         if len(list_facts):
             for fact in list_facts:
                 name = fact['name']
                 if name not in ansible_facts.keys():
                     ansible_facts[name] = fact
                 else:
-                    self.module.fail_json(msg="duplicated vguests name")
+                    self.module.fail_json(msg="duplicated vHardware name")
             results['ansible_facts'] = ansible_facts
             results['_ansible_verbose_override'] = True
         else:
-            results['msg'] = "vguest not found"
+            results['msg'] = "vHardware not found"
 
     ###
     def info(self,name,id,results):
@@ -226,10 +215,10 @@ class vGuests(object):
 
         items = self.state(name,id,results)
         for item in items:
-            list_instances.append(self.vs.get_instance(item['id']))
+            list_instances.append(self.hw.get_hardware(item['id']))
 
         if len(list_instances) == 0:
-            results['msg'] = "vguest not found"
+            results['msg'] = "vHardware not found"
         results['instances'] = list_instances
     
     ###
@@ -249,20 +238,17 @@ class vGuests(object):
         vsi['domain']   = name.split('.',1)[1]
         vsi['ssh_keys'] = self.sshkey
         
-        order = self.vs.verify_create_instance(**vsi)
-        inst  = self.vs.create_instance(**vsi)
-        self.vs.wait_for_ready(inst['id'],wait)
+        order = self.hw.verify_create_instance(**vsi)
+        inst  = self.hw.create_instance(**vsi)
+        self.hw.wait_for_ready(inst['id'],wait)
 
         results['changed'] = True
         results['instances'] = self.state(name,id,results)
 
     ###
     def destroy(self,name,id,results):
-        wait = self.module.params.get('wait')
-
-        if self.vs.cancel_instance(id):
+        if self.hw.cancel_hardware(id):
             results['changed'] = True
-        self.vs.wait_for_ready(id,wait)
 
         for item in self.state(name,id,results):
             results['instances'].append(item)
@@ -302,7 +288,7 @@ class vGuests(object):
 
         try:
             self.client = SoftLayer.create_client_from_env()
-            self.vs     = VSManager(self.client)
+            self.hw     = HardwareManager(self.client)
             self.vdi    = self.client['Virtual_Disk_Image']
             self.sshkey = SshKeyManager(self.client)._get_ids_from_label(sshkey)
 
@@ -311,7 +297,7 @@ class vGuests(object):
             else:
                 items = self.state(name,0,results)
                 if not len(items):
-                    items = [{ 'state':'Undefined', 'name':name, 'id':0 }] ## to create vguest with a virtual state Undefined
+                    items = [{ 'state':'Undefined', 'name':name, 'id':0 }] ## to create hardware with a state Undefined
 
                 for item in items:
                     FINITE_STATE[item['state']][state](item['name'],item['id'],results)
@@ -335,8 +321,8 @@ class vGuests(object):
             'id'          : inst['id'],
             'name'        : inst['fullyQualifiedDomainName'],
             'datacenter'  : inst['datacenter']['name'],
-            'state'       : inst['powerState']['name'],
-            'status'      : inst['status']['name'],
+            'state'       : "Running",
+            'status'      : "Active",
             'address'     : 'undefined',
             }
 
@@ -346,26 +332,24 @@ class vGuests(object):
             info['address'] = inst['primaryIpAddress']
 
         return info
-
+    
     ###    
     def get_fact(self,inst):
         info = {
             'id'          : inst['id'],
             'name'        : inst['fullyQualifiedDomainName'],
-            'hostname'    : inst['hostname'],
-            'domain'      : inst['domain'],
             'datacenter'  : inst['datacenter']['name'],
-            'cpus'        : inst['maxCpu'],
-            'memory'      : inst['maxMemory'],
-            'state'       : inst['powerState']['name'],
-            'status'      : inst['status']['name'],
+            'state'       : "Running",
+            'status'      : "Active",
+            'cpus'        : inst['processorPhysicalCoreAmount'],
+            'memory'      : inst['memoryCapacity'],
             'os_code'     : inst['operatingSystem']['softwareLicense']['softwareDescription']['referenceCode'],
-            'dedicated'   : inst['dedicatedAccountHostOnlyFlag'],
             'hourly'      : inst['hourlyBillingFlag'],
             'private'     : inst['privateNetworkOnlyFlag'],
             'tags'        : [i['tag']['name'] for i in inst['tagReferences']],
+            'address'     : 'undefined',
             }
-        
+
         # Address value if defined
         if 'primaryBackendIpAddress' in inst.keys():
             info['address'] = inst['primaryBackendIpAddress']
@@ -373,28 +357,12 @@ class vGuests(object):
             info['address'] = inst['primaryIpAddress']
         
         # privateAddress value if defined
+        if 'networkManagementIpAddress' in inst.keys():
+            info['managementAddress'] = inst['networkManagementIpAddress']
         if 'primaryBackendIpAddress' in inst.keys():
             info['privateAddress'] = inst['primaryBackendIpAddress']
         if 'primaryIpAddress' in inst.keys():
             info['publicAddress'] = inst['primaryIpAddress']
-        
-        # publicAddress value if defined
-        if len(inst['blockDevices']):
-            local_disk = False
-            info['disks'] = []
-            for blockDevice in inst['blockDevices']:
-                disk = self.vdi.getObject(id=blockDevice['diskImageId'])
-                if not 'SWAP' in disk['name']:
-                    if 'GB' in disk['units']: 
-                        unit = 1
-                    elif 'TB' in disk['units']:
-                        unit = 1000
-                    else:
-                        unit = 0
-                    if self.vdi.getLocalDiskFlag(id=blockDevice['diskImageId']):
-                        local_disk = True
-                    info['disks'].append(disk['capacity'] * unit)
-            info['local_disk'] = local_disk
 
         # vlan
         if len(inst['networkVlans']):
@@ -419,7 +387,7 @@ class vGuests(object):
         # Post Install Script URI
         if inst.get('postInstallScriptUri') is not None:
             info['post_uri'] = inst['postInstallScriptUri']
-            
+                    
         return info
     
 #
@@ -443,7 +411,7 @@ def main():
         required_one_of = [['state']],
         mutually_exclusive = [['hourly','monthly']]
         ) 
-    vGuests(module).main()
+    vHardware(module).main()
 
 ###                              
 from ansible.module_utils.facts import *
