@@ -109,8 +109,8 @@ tasks:
 # default flavor file example
   {
    'hourly'     : True, 
-   'no_public'  : True,
-   'location'   : 'par01',
+   'private'    : True,
+   'datacenter' : 'par01',
    'size'       : 'S1270_8GB_2X1TBSATA_NORAID',
    'os_code'    : 'UBUNTU_14_64',
    'port_speed' : 100,
@@ -138,8 +138,8 @@ MASK_FACTS   = "id"
 
 BMS_DEFAULT = {
                'hourly'     : True, 
-               'no_public'  : True,
-               'location'   : 'par01',
+               'private'    : True,
+               'datacenter' : 'par01',
                'size'       : 'S1270_8GB_2X1TBSATA_NORAID',
                'os_code'    : 'UBUNTU_14_64',
                'port_speed' : 100,
@@ -170,7 +170,6 @@ class vHardware(object):
             )
         for item in items:
             list_hardware.append(self.get_instance(item))
-        #results['debug']=items
         return list_hardware
 
     ###    
@@ -233,16 +232,22 @@ class vHardware(object):
         
         # must set tags after place_order
         bms_tags = None
-        if 'tags' in bms.get_keys():
+        if 'tags' in bms.keys():
             bms_tags = bms['tags']
             del(bms['tags'])
         
-        bms['hostname'] = name.split('.',1)[0]
-        bms['domain']   = name.split('.',1)[1]
-        bms['ssh_keys'] = self.sshkey
-        bms['os']       = bms['os_code']    # transcode OS for Hardware / vGuest
+        bms['hostname']  = name.split('.',1)[0]
+        bms['domain']    = name.split('.',1)[1]
+        bms['ssh_keys']  = self.sshkey
+
+        bms['os']        = bms['os_code']       # transcode Hardware vs vGuest
         del(bms['os_code'])
-        
+        bms['location']  = bms['datacenter']    # transcode Hardware vs vGuest
+        del(bms['datacenter'])
+        bms['no_public'] = bms['private']       # transcode Hardware vs vGuest
+        del(bms['private'])       
+        results['debug_bms'] = bms
+
         order = self.hw.verify_order(**bms)
         inst  = self.hw.place_order(**bms)
         results['debug_inst'] = inst
@@ -318,8 +323,9 @@ class vHardware(object):
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_exception(exc_type, exc_value, exc_traceback,limit=1)
             trace = traceback.format_exc(limit=0)
-            self.module.fail_json(msg="exception faultCode:%s, faultString=%s, traceBack=%s" % (type(e),e.args,trace))
-
+            results['msg'] = "exception faultCode:%s, faultString=%s, traceBack=%s" % (type(e),e.args,trace)
+            self.module.fail_json(**results)
+            
         self.module.exit_json(**results)
 
 #
@@ -341,10 +347,13 @@ class vHardware(object):
             info['address'] = inst['primaryBackendIpAddress']
         elif 'primaryIpAddress' in inst.keys():
             info['address'] = inst['primaryIpAddress']
-
-        if 'activeTransaction' in inst.keys():
-            info['stTransaction'] = inst['activeTransaction']['transactionStatus']['friendlyName']
             
+        if 'activeTransaction' in inst.keys():
+            if 'friendlyName' in inst['activeTransaction']['transactionStatus']:
+                info['stTransaction'] = inst['activeTransaction']['transactionStatus']['friendlyName']
+            else:
+                info['stTransaction'] = inst['activeTransaction']['transactionStatus']['name']
+                        
         return info
     
     ###    
