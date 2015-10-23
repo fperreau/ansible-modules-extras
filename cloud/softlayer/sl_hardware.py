@@ -113,6 +113,12 @@ tasks:
 
 # default flavor file example
   {
+   'hourly'     : True, 
+   'no_public'  : True,
+   'location'   : 'par01',
+   'size'       : 'S1270_8GB_2X1TBSATA_NORAID',
+   'os'         : 'UBUNTU_14_64',
+   'port_speed' : 100,
   }
 '''
 
@@ -132,21 +138,17 @@ ALL_STATES        = ['list','info','facts','running','halted','paused','destroy'
 ALL_POWER_STATES  = ['Running','Halted','Paused','Undefined']
 ALL_STATUS        = ['Active']
 
-MASK_LIST    = "fullyQualifiedDomainName,id,datacenter.name,primaryBackendIpAddress"
+MASK_LIST    = "fullyQualifiedDomainName,id,datacenter.name,primaryBackendIpAddress,hardwareStatusId"
 MASK_FACTS   = "id"
 
-VSI_DEFAULT = {
-               'private' : True,
-               'dedicated' : False,
-               'hourly' : True,
-               'datacenter' :'par01',
-               'cpus' : 1,
-               'memory' : 1024,
-               'nic_speed' : 1000,
-               'local_disk': True,
-               'disks' : [25],
-               'os_code' : 'UBUNTU_14_64',
-               'tags' : 'mytag',
+BMS_DEFAULT = {
+               'hourly'     : True, 
+               'no_public'  : True,
+               'location'   : 'par01',
+               'size'       : 'S1270_8GB_2X1TBSATA_NORAID',
+               'os'         : 'UBUNTU_14_64',
+               'port_speed' : 100,
+               'tags'       : 'mytag',
                }
 
 SSHKEY_LABEL = 'Frederic PERREAU'
@@ -169,10 +171,11 @@ class vHardware(object):
             hostname   = name.split('.',1)[0] if name is not None else self.module.params.get('hostname'),
             domain     = name.split('.',1)[1] if name is not None else self.module.params.get('domain'),
             datacenter = self.module.params.get('datacenter'),
-            mask = MASK_LIST,
+            #mask = MASK_LIST,
             )
         for item in items:
             list_hardware.append(self.get_instance(item))
+        #results['debug']=items
         return list_hardware
 
     ###    
@@ -205,7 +208,7 @@ class vHardware(object):
                 else:
                     self.module.fail_json(msg="duplicated vHardware name")
             results['ansible_facts'] = ansible_facts
-            results['_ansible_verbose_override'] = True
+            #results['_ansible_verbose_override'] = True
         else:
             results['msg'] = "vHardware not found"
 
@@ -226,28 +229,39 @@ class vHardware(object):
         if name is None:
             self.module.fail_json(msg="vguest name need to be defined.")
 
-        vsi     = self.module.params.get('flavor')
+        bms     = self.module.params.get('flavor')
         wait    = self.module.params.get('wait')
         hourly  = self.module.boolean(self.module.params.get('hourly'))  
         monthly = self.module.boolean(self.module.params.get('monthly'))
 
-        if monthly is True: vsi['hourly'] = False
-        if hourly is True:  vsi['hourly'] = True
+        if monthly is True: bms['hourly'] = False
+        if hourly is True:  bms['hourly'] = True
         
-        vsi['hostname'] = name.split('.',1)[0]
-        vsi['domain']   = name.split('.',1)[1]
-        vsi['ssh_keys'] = self.sshkey
+        # must set tags after place_order
+        bms_tags = None
+        if 'tags' in bms.get_keys():
+            bms_tags = bms['tags']
+            del(bms['tags'])
         
-        order = self.hw.verify_create_instance(**vsi)
-        inst  = self.hw.create_instance(**vsi)
-        self.hw.wait_for_ready(inst['id'],wait)
+        bms['hostname'] = name.split('.',1)[0]
+        bms['domain']   = name.split('.',1)[1]
+        bms['ssh_keys'] = self.sshkey
+        
+        order = self.hw.verify_order(**bms)
+        inst  = self.hw.place_order(**bms)
+        results['debug_inst'] = inst
+        
+        state_inst = self.state(name,id,results)
+
+        if bms_tags:
+            self.hw.edit(hardware_id=state_inst['id'], tags=bms_tags)
 
         results['changed'] = True
-        results['instances'] = self.state(name,id,results)
+        results['instances'] = state_inst
 
     ###
     def destroy(self,name,id,results):
-        if self.hw.cancel_hardware(id):
+        if self.hw.cancel_hardware(id,immediate=True):
             results['changed'] = True
 
         for item in self.state(name,id,results):
@@ -323,6 +337,7 @@ class vHardware(object):
             'datacenter'  : inst['datacenter']['name'],
             'state'       : "Running",
             'status'      : "Active",
+            'stHardware'  : inst['hardwareStatusId'],
             'address'     : 'undefined',
             }
 
@@ -331,6 +346,8 @@ class vHardware(object):
         elif 'primaryIpAddress' in inst.keys():
             info['address'] = inst['primaryIpAddress']
 
+        if 'activeTransaction' in inst.keys():
+            info['stTransaction'] = inst['activeTransaction']['transactionStatus']['friendlyName']
         return info
     
     ###    
@@ -338,6 +355,8 @@ class vHardware(object):
         info = {
             'id'          : inst['id'],
             'name'        : inst['fullyQualifiedDomainName'],
+            'hostname'    : inst['hostname'],
+            'domain'      : inst['domain'],
             'datacenter'  : inst['datacenter']['name'],
             'state'       : "Running",
             'status'      : "Active",
@@ -375,10 +394,11 @@ class vHardware(object):
         nic_speed = 0
         if len(inst['networkComponents']):
             for networkComponent in inst['networkComponents']:
-                if 'ACTIVE' in networkComponent['status']:
-                    if nic_speed < networkComponent['maxSpeed']:
-                        nic_speed = networkComponent['maxSpeed']
-            info['nic_speed'] = nic_speed
+                if networkComponent.get('primarySubnet'):
+                    if 'ACTIVE' in networkComponent['status']:
+                        if nic_speed < networkComponent['maxSpeed']:
+                            nic_speed = networkComponent['maxSpeed']
+                    info['nic_speed'] = nic_speed
             
         # User Data
         if len(inst['userData']):
@@ -403,10 +423,10 @@ def main():
             datacenter   = dict(type='str'),
             tags         = dict(type='str'),
             wait         = dict(type='int',  default=600),
-            flavor       = dict(type='dict', default=VSI_DEFAULT),
+            flavor       = dict(type='dict', default=BMS_DEFAULT),
             sshkey       = dict(type='str',  default=SSHKEY_LABEL),
-            hourly       = dict(choices=BOOLEANS, default=True),
-            monthly      = dict(choices=BOOLEANS, default=False),
+            hourly       = dict(choices=BOOLEANS, default='yes'),
+            monthly      = dict(choices=BOOLEANS, default='no' ),
             ),
         required_one_of = [['state']],
         mutually_exclusive = [['hourly','monthly']]

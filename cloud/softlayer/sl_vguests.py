@@ -216,7 +216,7 @@ class vGuests(object):
                 else:
                     self.module.fail_json(msg="duplicated vguests name")
             results['ansible_facts'] = ansible_facts
-            results['_ansible_verbose_override'] = True
+            #results['_ansible_verbose_override'] = True
         else:
             results['msg'] = "vguest not found"
 
@@ -437,8 +437,8 @@ def main():
             wait         = dict(type='int',  default=600),
             flavor       = dict(type='dict', default=VSI_DEFAULT),
             sshkey       = dict(type='str',  default=SSHKEY_LABEL),
-            hourly       = dict(choices=BOOLEANS, default=True),
-            monthly      = dict(choices=BOOLEANS, default=False),
+            hourly       = dict(choices=BOOLEANS, default='yes'),
+            monthly      = dict(choices=BOOLEANS, default='no' ),
             ),
         required_one_of = [['state']],
         mutually_exclusive = [['hourly','monthly']]
