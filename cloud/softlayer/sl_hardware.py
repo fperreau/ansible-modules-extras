@@ -24,70 +24,65 @@ author: Frederic PERREAU
 module: sl_hardware
 short_description: Manage vHardware machine supported by IBM SoftLayer cloud.
 description:
-  - This module helps you to create, destroy, .. the public or private hardware machines (vguest) hosted in IBM SoftLayer cloud.
-    It is now a pleasure to deploy, configure and manage the SoftLayer hardware with the best configuration manager ANSIBLE. 
+  - This module helps you to create, destroy, .. the public or private bare metal servers hosted in IBM SoftLayer cloud.
+    It is now a pleasure to deploy, configure and manage the SoftLayer servers with the best configuration manager ANSIBLE. 
     This module requires the SofLayer python library with username and api_key configured.
 version_added: "0.1"
 options:
   name:
     description:
       - Name of the hardware machine managed. It is a full qualified domain name.
-        Name is required for to create server with flavor resources need
+        Name is required for to create bare metal server with flavor resources need
     required: false
     default: no
   state:
     description:
-      - I(running) - start or create hardware machine.
-      - I(destroy) - delete hardware machine.
-      - I(list) - show hardware machines.
-      - I(facts) - extract the description of hardware machine.
-      - I(info) - show configuration of hardware machine.
+      - I(running) - start or create bare metal server.
+      - I(destroy) - delete bare metal server.
+      - I(list) - show bare metal servers.
+      - I(facts) - extract the description of bare metal server.
+      - I(info) - show configuration of bare metal server.
     required: true
     choice: [ "running", "destroy", "list", "info", "facts" ]
     default: no
   hostname:
     description:
-      - select hardware machine by short name
+      - select bare metal server by short name
     required: false
     default: no
   domain:
     description:
-      - select hardware machine by domain name
+      - select bare metal server by domain name
     required: false
     default: no
   datacenter:
     description:
-      - select hardware machine by datacenter name
+      - select bare metal server by datacenter name
     required: false
     default: no
   tags:
     description:
-      - select hardware machine by tags name
+      - select bare metal server by tags name
     required: false
     default: no
   flavor:
     description:
-      - define the flavor when create the hardware machine
+      - define the flavor when create the bare metal server
     required: false
     default: see example
   sshkey:
     description:
-      - define the label of sshkey use to connect in hardware machine with root account 
+      - define the label of sshkey use to connect in bare metal server with root account 
     required: false
     default: Frederic PERREAU
-  wait:
-    description:
-      - Waits on a hardware machine transaction for the specified amount of time 
-    required: false
-    default: no
   hourly:
     description:
-      - choose hourly hardware machine (default)
+      - choose hourly bare metal server (default)
     required: false
     default: no
   monthly:
     description:
-      - choose monthly hardware machine     
+      - choose monthly bare metal server     
     required: false
     default: no
 requirements: [ "softlayer-python" ]
@@ -117,7 +112,7 @@ tasks:
    'no_public'  : True,
    'location'   : 'par01',
    'size'       : 'S1270_8GB_2X1TBSATA_NORAID',
-   'os'         : 'UBUNTU_14_64',
+   'os_code'    : 'UBUNTU_14_64',
    'port_speed' : 100,
   }
 '''
@@ -146,7 +141,7 @@ BMS_DEFAULT = {
                'no_public'  : True,
                'location'   : 'par01',
                'size'       : 'S1270_8GB_2X1TBSATA_NORAID',
-               'os'         : 'UBUNTU_14_64',
+               'os_code'    : 'UBUNTU_14_64',
                'port_speed' : 100,
                'tags'       : 'mytag',
                }
@@ -230,7 +225,6 @@ class vHardware(object):
             self.module.fail_json(msg="vguest name need to be defined.")
 
         bms     = self.module.params.get('flavor')
-        wait    = self.module.params.get('wait')
         hourly  = self.module.boolean(self.module.params.get('hourly'))  
         monthly = self.module.boolean(self.module.params.get('monthly'))
 
@@ -246,6 +240,8 @@ class vHardware(object):
         bms['hostname'] = name.split('.',1)[0]
         bms['domain']   = name.split('.',1)[1]
         bms['ssh_keys'] = self.sshkey
+        bms['os']       = bms['os_code']    # transcode OS for Hardware / vGuest
+        del(bms['os_code'])
         
         order = self.hw.verify_order(**bms)
         inst  = self.hw.place_order(**bms)
@@ -348,6 +344,7 @@ class vHardware(object):
 
         if 'activeTransaction' in inst.keys():
             info['stTransaction'] = inst['activeTransaction']['transactionStatus']['friendlyName']
+            
         return info
     
     ###    
@@ -422,7 +419,6 @@ def main():
             domain       = dict(type='str'),
             datacenter   = dict(type='str'),
             tags         = dict(type='str'),
-            wait         = dict(type='int',  default=600),
             flavor       = dict(type='dict', default=BMS_DEFAULT),
             sshkey       = dict(type='str',  default=SSHKEY_LABEL),
             hourly       = dict(choices=BOOLEANS, default='yes'),
