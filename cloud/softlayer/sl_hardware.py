@@ -239,12 +239,13 @@ class vHardware(object):
         bms['hostname']  = name.split('.',1)[0]
         bms['domain']    = name.split('.',1)[1]
         bms['ssh_keys']  = self.sshkey
-
-        bms['os']        = bms['os_code']       # transcode Hardware vs vGuest
+        
+        # Transcodage Hardware vs vGuest
+        bms['os']        = bms['os_code']
         del(bms['os_code'])
-        bms['location']  = bms['datacenter']    # transcode Hardware vs vGuest
+        bms['location']  = bms['datacenter']
         del(bms['datacenter'])
-        bms['no_public'] = bms['private']       # transcode Hardware vs vGuest
+        bms['no_public'] = bms['private']
         del(bms['private'])       
         results['debug_bms'] = bms
 
@@ -254,7 +255,7 @@ class vHardware(object):
         
         state_inst = self.state(name,id,results)
 
-        if bms_tags:
+        if bms_tags is not None:
             self.hw.edit(hardware_id=state_inst['id'], tags=bms_tags)
 
         results['changed'] = True
@@ -350,7 +351,10 @@ class vHardware(object):
             
         if 'activeTransaction' in inst.keys():
             if 'friendlyName' in inst['activeTransaction']['transactionStatus']:
-                info['stTransaction'] = inst['activeTransaction']['transactionStatus']['friendlyName']
+                info['stTransaction'] = "%s - %s" % (
+                    inst['activeTransaction']['transactionStatus']['name'],
+                    inst['activeTransaction']['transactionStatus']['friendlyName']
+                    )
             else:
                 info['stTransaction'] = inst['activeTransaction']['transactionStatus']['name']
                         
